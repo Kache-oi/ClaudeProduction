@@ -1,0 +1,130 @@
+# Prompt: sync check for the parent-tracking system
+
+Paste everything below the line into Claude Code, in the project root.
+
+---
+
+<role>
+You are a senior Laravel and Vue engineer and systems auditor with expertise in school-transport, GPS tracking, SMS/WhatsApp messaging and M-Pesa payments.
+Your audience: a non-technical product owner who needs plain-language answers, plus a developer who will build from your report.
+Communication style: plain, short sentences, tables where useful, no jargon without a one-line explanation. State uncertainty explicitly instead of guessing.
+</role>
+
+<task>
+AUDIT the existing, already-working system against the product description below, and report what already exists, what is missing, and what conflicts. This is a READ-ONLY audit. Do not change, create or delete any code, migration, config or data.
+
+Key requirements:
+- Compare every part of the product description to the real code and database structure.
+- Mark each item: EXISTS / PARTIAL / MISSING / CONFLICT, with the file path and line as evidence.
+- Do not assume anything exists because the description says so. Verify in code.
+- Finish with a recommended build order and a list of questions for the owner.
+</task>
+
+<context>
+## Product: parent tracking without an app
+
+We track school students on school buses. Parents and guardians do NOT install any app. They receive SMS or WhatsApp messages and open a web link in their phone browser to see the live bus position.
+
+### Actors and tools
+| Actor | Tool | Role |
+|---|---|---|
+| System admin | Admin panel (Vue) | Controls everything, including per-school feature switches |
+| School admin | School console (Vue) | Manages students, classes, routes, parents |
+| Driver | Driver app (exists today) | Knows every student on the bus; marks each student picked up and dropped off |
+| Bus device | GPS hardware in the bus | Sends bus coordinates to the backend |
+| Parent / guardian | Phone only, no app | Receives messages, opens a web link |
+
+### Data held per student (already in our database, verify)
+- Class or grade
+- Home location (where they live)
+- Parent or guardian phone number (where messages are sent)
+- Which bus and route they are on
+
+### Trip lifecycle (applies to both morning home-to-school and afternoon school-to-home)
+1. Bus is about 5 minutes and about 2 minutes from the student's stop: parent gets a text with NO link.
+2. Driver marks the student as boarded: parent gets a text WITH the live-tracking link.
+3. The link shows the live bus position, from the bus GPS device, only while the student is on board.
+4. Driver marks the student dropped off (at school or at home): parent gets a text. This ends that student's trip and the link stops showing the bus.
+
+### Access rules for the live link
+- Rule A (boarding): the parent can see the bus only after their child has boarded. Before boarding, no access.
+- Rule B (payment): the parent can see the bus only if they have paid for the bus service.
+- Both rules must hold at the same moment.
+
+### Data flow
+Bus device -> backend -> (a) admin panel and school console map, (b) driver app, (c) parent web page.
+Driver app -> backend: boarded / dropped-off events. These events trigger the messages and unlock the link.
+
+### Messages (four)
+1. Approaching, about 5 minutes away (no link)
+2. Approaching, about 2 minutes away (no link)
+3. Boarded (with live link)
+4. Dropped off (end of trip)
+
+## ASSUMPTIONS TO VERIFY WITH THE OWNER (do not treat as settled)
+- A1. The four messages are exactly the four above. (Alternative: one "approaching" message plus boarded, dropped, and a trip-end message.)
+- A2. Boarding is marked by the driver tapping in the driver app. (Alternative: device-confirmed.)
+- A3. Unpaid parents get no tracking link. Unknown whether they still get the approaching texts.
+- A4. One link per student per trip, expiring when the trip ends.
+- A5. The GPS device is built before the full parent experience. Earlier planning put the device last. Verify which order the owner wants.
+- A6. The "has paid" check must exist from the first parent release, even if M-Pesa collection comes later.
+
+## Foundation work already planned (Phase 0), compatible with the above
+- `school_features` table: per-school on/off switches, default OFF: parent_mode, sms_updates, tracking_links, whatsapp, mpesa, verified_boarding. Admin-only, audited.
+- `PhoneNumber` helper: normalise Kenyan numbers to +254..., reject bad numbers, mask for display (+254712***678). Do not rewrite stored numbers.
+- Safe logging: new outgoing web calls log with phone numbers masked and secrets removed.
+- `SchoolTime`: Nairobi time for new code; server stays UTC.
+- Redis queue for NEW jobs only; existing code keeps current queue behaviour.
+- Health check command for Redis, queue worker, scheduler.
+- Config key names only (WhatsApp, SMS, Daraja, short links) in `.env.example`.
+- Fix: AdminDashboardController counts the wrong role numbers (drivers, parents, students). Expected correct values: Schools 2, Drivers 3, Parents 4, Guardians 5, Students 6. VERIFY against the real roles before trusting this.
+</context>
+
+<instructions>
+Work in this order. Think step by step, then report.
+
+1. Map the project: framework versions, folder structure, routes (`routes/api.php`), controllers (including `TripController`, `AdminDashboardController`), models, migrations, jobs, notifications (Firebase push), scheduler (`Console/Kernel.php`), queue and cache config, and the Vue apps.
+2. Do NOT open or print `.env` or any secrets. Read `.env.example` only.
+3. Check each requirement below against the code and database structure, and record EXISTS / PARTIAL / MISSING / CONFLICT with evidence:
+   a. Students: class or grade, home location, bus and route assignment, link to parent or guardian.
+   b. Parent and guardian phone numbers: where stored, format, how consistent, how many are missing or malformed (structure and counts only, no real numbers in your report).
+   c. Roles: the real numeric role values and how they are used. Confirm or correct the dashboard fix table above.
+   d. Trips: how a trip starts and ends, morning versus afternoon, trip-student relationship, existing boarded / picked-up / dropped-off events and who records them.
+   e. Driver app: what it already sends and receives; whether per-student boarding is recorded; the endpoints it calls.
+   f. GPS: does any device, location table or live-location endpoint exist? How often is location stored? Who can read it?
+   g. ETA: does anything compute minutes-to-stop? If not, say what data it would need.
+   h. Messaging: any existing SMS, WhatsApp or notification code; only Firebase push today?
+   i. Payments: any fee, subscription, payment-status or M-Pesa code; where "paid" could be stored.
+   j. Parent web access: anything public or token-based today? Any exposure risk, for example the `GET users/all-schools` endpoint that both apps call (report what it exposes; do not change it).
+   k. Tenancy: how a school's data is separated from other schools; confirm queries are scoped by school.
+   l. Time zones: app timezone and how timestamps are stored.
+   m. Queue and scheduler: current driver (sync?), whether Redis is installed and configured, whether the scheduler is running.
+   n. Tests: run the existing test suite once and record pass / fail / error counts as a baseline. If it cannot run, say why. Do not fix failing tests.
+4. Test each assumption A1-A6 against what you found. Say which are supported, contradicted or undecidable from the code.
+5. List conflicts between this description and the existing code or database (for example a different role scheme, no per-student boarding, locations stored per bus not per trip).
+6. Recommend a build order, with each phase small, safe and switchable per school. Explain in one line why each phase depends on the previous one.
+7. Ask the owner only the questions the code cannot answer.
+
+If information is missing or uncertain, state this explicitly rather than guessing. Do not invent file names, tables or columns. Quote real ones.
+</instructions>
+
+<constraints>
+- READ-ONLY. No edits, no migrations, no commits, no installs, no config changes. Running the existing tests once is the only command with side effects allowed.
+- Never read, print or log `.env`, API keys, tokens or real phone numbers.
+- Do not touch `GET users/all-schools`, any existing endpoint, the driver app, the guardian app or push notifications. Only report on them.
+- New behaviour must be additive and behind a per-school switch that defaults to OFF. Turning a switch off must restore exactly today's behaviour.
+- Server time zone stays UTC. Nairobi time is used only by new code.
+- Plain language. No jargon without a one-line explanation.
+</constraints>
+
+<output>
+Format: markdown, in this structure:
+1. One-paragraph verdict: can this product be built on the current system, yes or no, and the biggest risk.
+2. Table: requirement | status (EXISTS / PARTIAL / MISSING / CONFLICT) | evidence (file:line) | note.
+3. Assumptions A1-A6: supported / contradicted / undecidable, each with one line of evidence.
+4. Conflicts and risks, ranked, most serious first.
+5. Baseline test result (pass / fail / error counts).
+6. Recommended build order, as a numbered list of small phases.
+7. Questions for the owner (maximum 8, each answerable in one sentence).
+Length: under 900 words in the body, plus the table.
+</output>
