@@ -1,0 +1,14 @@
+{
+  "extraKnownMarketplaces": {
+    "ponytail": {
+      "source": { "source": "github", "repo": "DietrichGebert/ponytail" }
+    },
+    "i-have-adhd": {
+      "source": { "source": "github", "repo": "ayghri/i-have-adhd" }
+    }
+  },
+  "enabledPlugins": {
+    "ponytail@ponytail": true,
+    "i-have-adhd@i-have-adhd": true
+  }
+}
