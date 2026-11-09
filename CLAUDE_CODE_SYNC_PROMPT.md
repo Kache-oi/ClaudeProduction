@@ -17,6 +17,7 @@ Key requirements:
 - Compare every part of the product description to the real code and database structure.
 - Mark each item: EXISTS / PARTIAL / MISSING / CONFLICT, with the file path and line as evidence.
 - Do not assume anything exists because the description says so. Verify in code.
+- Check the project is ready to run entirely on one self-hosted VPS with no subscriptions, no Supabase, no new Firebase use, and open-source maps. List every external dependency and its replacement.
 - Finish with a recommended build order and a list of questions for the owner.
 </task>
 
@@ -61,6 +62,19 @@ Driver app -> backend: boarded / dropped-off events. These events trigger the me
 3. Boarded (with live link)
 4. Dropped off (end of trip)
 
+### Who holds parent data
+Parents never log in and have no accounts to manage. The system admin and the school admin hold and manage all parent and guardian contact data. Parent access is only the tracking link.
+
+## HOSTING AND COST RULES (decided by the owner, treat as requirements)
+- Everything runs on ONE self-managed VPS (Nginx, PHP-FPM, MySQL, Redis, queue worker under supervisor, scheduler via cron). The whole product must work fully from there.
+- All data stays in our own database, on our own server. Student and parent data is not sent to third-party cloud backends.
+- NO Supabase. NO Firebase for new work. Firebase appears to be used today for push to the driver and guardian apps: audit where and how, and propose a self-hosted replacement. Do NOT remove or change it yet.
+- NO monthly or yearly subscriptions. Pay-per-use costs (for example per SMS) are acceptable only if the owner approves each one. Say clearly which parts cannot be free.
+- Maps must be open source. Intended: OpenStreetMap data with Leaflet (or MapLibre) in the browser. Do not use the Google Maps JavaScript or Directions APIs. Do not rely on the public OpenStreetMap tile servers for production traffic (their policy forbids heavy use). Plan for self-hosted tiles for Kenya. Routing and ETA, if needed, should be self-hosted and open source, or simple distance-based.
+- Live updates to the parent web page and admin maps should use self-hosted tools (for example Laravel Reverb, Server-Sent Events or short polling), not a paid realtime service.
+- GPS device data should land on our VPS. An open-source GPS server such as Traccar is a candidate to evaluate. Do not assume it. Check what the chosen device can send first.
+- Security basics are part of "works fully": HTTPS with a free certificate, firewall, no secrets in git, automatic backups of the database kept off the server, and only the web ports exposed. Redis and MySQL must not be reachable from the internet.
+
 ## ASSUMPTIONS TO VERIFY WITH THE OWNER (do not treat as settled)
 - A1. The four messages are exactly the four above. (Alternative: one "approaching" message plus boarded, dropped, and a trip-end message.)
 - A2. Boarding is marked by the driver tapping in the driver app. (Alternative: device-confirmed.)
@@ -68,6 +82,9 @@ Driver app -> backend: boarded / dropped-off events. These events trigger the me
 - A4. One link per student per trip, expiring when the trip ends.
 - A5. The GPS device is built before the full parent experience. Earlier planning put the device last. Verify which order the owner wants.
 - A6. The "has paid" check must exist from the first parent release, even if M-Pesa collection comes later.
+- A7. Texting needs some gateway, which cannot be fully free. Options to compare: a pay-per-message provider with no subscription, or a self-hosted gateway using our own SIM or GSM modem. Owner has not chosen.
+- A8. WhatsApp Business messaging is charged per conversation by Meta and needs approved templates. It may be dropped or delayed to keep costs at zero. Owner has not chosen.
+- A9. The driver and guardian apps can keep working without Firebase if push is replaced by a self-hosted mechanism. Unknown how much the apps depend on it today.
 
 ## Foundation work already planned (Phase 0), compatible with the above
 - `school_features` table: per-school on/off switches, default OFF: parent_mode, sms_updates, tracking_links, whatsapp, mpesa, verified_boarding. Admin-only, audited.
@@ -93,7 +110,11 @@ Work in this order. Think step by step, then report.
    e. Driver app: what it already sends and receives; whether per-student boarding is recorded; the endpoints it calls.
    f. GPS: does any device, location table or live-location endpoint exist? How often is location stored? Who can read it?
    g. ETA: does anything compute minutes-to-stop? If not, say what data it would need.
-   h. Messaging: any existing SMS, WhatsApp or notification code; only Firebase push today?
+   h. Messaging: any existing SMS, WhatsApp or notification code; only Firebase push today? List every place Firebase is used (files, packages, config key names, app side if visible) and what each use does.
+   h2. External services inventory: list every third-party service, package or API the project calls or depends on (Firebase, Supabase, Google Maps, any SMS, mail, storage, analytics, hosting). For each: purpose, where used, whether it has a subscription or per-use cost, and the self-hosted or open-source replacement. Config key names only, never values.
+   h3. Maps today: how the apps and consoles show maps now (library, provider, any Google Maps key names), and what it would take to switch to open-source tiles.
+   h4. VPS readiness: PHP and Node versions required, extensions, database engine and version, Redis availability, supervisor and cron setup, storage paths and file permissions, `.env.example` completeness, any hard-coded URLs or cloud-only assumptions, existing deploy or Docker files. Say what a fresh single-VPS install needs, step by step, and what is missing from the repo to do it.
+   h5. Realtime: any websocket, polling or push mechanism today, and how the driver app gets updates.
    i. Payments: any fee, subscription, payment-status or M-Pesa code; where "paid" could be stored.
    j. Parent web access: anything public or token-based today? Any exposure risk, for example the `GET users/all-schools` endpoint that both apps call (report what it exposes; do not change it).
    k. Tenancy: how a school's data is separated from other schools; confirm queries are scoped by school.
@@ -115,16 +136,21 @@ If information is missing or uncertain, state this explicitly rather than guessi
 - New behaviour must be additive and behind a per-school switch that defaults to OFF. Turning a switch off must restore exactly today's behaviour.
 - Server time zone stays UTC. Nairobi time is used only by new code.
 - Plain language. No jargon without a one-line explanation.
+- Every recommendation must run on one VPS with open-source software and no subscription. If something cannot be free (SMS, WhatsApp, M-Pesa fees), say so plainly and give the cheapest option and the cost model (per message, not monthly).
+- Do not recommend Supabase, Firebase, Google Maps or any paid realtime or hosting service for new work.
+- Do not remove or replace existing Firebase code in this audit. Report it and propose a migration path that keeps the apps working during the change.
 </constraints>
 
 <output>
 Format: markdown, in this structure:
 1. One-paragraph verdict: can this product be built on the current system, yes or no, and the biggest risk.
 2. Table: requirement | status (EXISTS / PARTIAL / MISSING / CONFLICT) | evidence (file:line) | note.
-3. Assumptions A1-A6: supported / contradicted / undecidable, each with one line of evidence.
-4. Conflicts and risks, ranked, most serious first.
-5. Baseline test result (pass / fail / error counts).
-6. Recommended build order, as a numbered list of small phases.
-7. Questions for the owner (maximum 8, each answerable in one sentence).
-Length: under 900 words in the body, plus the table.
+3. Assumptions A1-A9: supported / contradicted / undecidable, each with one line of evidence.
+4. External services table: service | where used | cost type (free / per-use / subscription) | self-hosted replacement | effort to switch (small / medium / large).
+5. Single-VPS plan: the stack, what to install, what is missing in the repo, and a short security and backup checklist.
+6. Conflicts and risks, ranked, most serious first.
+7. Baseline test result (pass / fail / error counts).
+8. Recommended build order, as a numbered list of small phases. Include where the Firebase replacement, open-source maps, the GPS server and the SMS gateway fit.
+9. Questions for the owner (maximum 8, each answerable in one sentence).
+Length: under 1100 words in the body, plus the tables.
 </output>
