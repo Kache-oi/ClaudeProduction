@@ -24,7 +24,7 @@ Key requirements:
 <context>
 ## Product: parent tracking without an app
 
-We track school students on school buses. Parents and guardians do NOT install any app. They receive SMS or WhatsApp messages and open a web link in their phone browser to see the live bus position.
+We track school students on school buses. Parent and guardian are the SAME person: one role, one phone number per student contact. Parents do NOT install any app. They receive SMS or WhatsApp messages and open a web link in their phone browser to see the live bus position.
 
 ### Actors and tools
 | Actor | Tool | Role |
@@ -33,12 +33,12 @@ We track school students on school buses. Parents and guardians do NOT install a
 | School admin | School console (Vue) | Manages students, classes, routes, parents |
 | Driver | Driver app (exists today) | Knows every student on the bus; marks each student picked up and dropped off |
 | Bus device | GPS hardware in the bus | Sends bus coordinates to the backend |
-| Parent / guardian | Phone only, no app | Receives messages, opens a web link |
+| Parent (same as guardian) | Phone only, no app | Receives messages, opens a web link |
 
 ### Data held per student (already in our database, verify)
 - Class or grade
 - Home location (where they live)
-- Parent or guardian phone number (where messages are sent)
+- Parent phone number (parent and guardian are the same; where messages are sent)
 - Which bus and route they are on
 
 ### Trip lifecycle (applies to both morning home-to-school and afternoon school-to-home)
@@ -63,12 +63,12 @@ Driver app -> backend: boarded / dropped-off events. These events trigger the me
 4. Dropped off (end of trip)
 
 ### Who holds parent data
-Parents never log in and have no accounts to manage. The system admin and the school admin hold and manage all parent and guardian contact data. Parent access is only the tracking link.
+Parents never log in and have no accounts to manage. The system admin and the school admin hold and manage all parent contact data. Parent access is only the tracking link.
 
 ## HOSTING AND COST RULES (decided by the owner, treat as requirements)
 - Everything runs on ONE self-managed VPS (Nginx, PHP-FPM, MySQL, Redis, queue worker under supervisor, scheduler via cron). The whole product must work fully from there.
 - All data stays in our own database, on our own server. Student and parent data is not sent to third-party cloud backends.
-- NO Supabase. NO Firebase for new work. Firebase appears to be used today for push to the driver and guardian apps: audit where and how, and propose a self-hosted replacement. Do NOT remove or change it yet.
+- NO Supabase. NO Firebase for new work. Firebase appears to be used today for push to the driver app and possibly a leftover guardian app: audit where and how, and propose a self-hosted replacement. Do NOT remove or change it yet.
 - NO monthly or yearly subscriptions. Pay-per-use costs (for example per SMS) are acceptable only if the owner approves each one. Say clearly which parts cannot be free.
 - Maps must be open source. Intended: OpenStreetMap data with Leaflet (or MapLibre) in the browser. Do not use the Google Maps JavaScript or Directions APIs. Do not rely on the public OpenStreetMap tile servers for production traffic (their policy forbids heavy use). Plan for self-hosted tiles for Kenya. Routing and ETA, if needed, should be self-hosted and open source, or simple distance-based.
 - Live updates to the parent web page and admin maps should use self-hosted tools (for example Laravel Reverb, Server-Sent Events or short polling), not a paid realtime service.
@@ -84,7 +84,8 @@ Parents never log in and have no accounts to manage. The system admin and the sc
 - A6. The "has paid" check must exist from the first parent release, even if M-Pesa collection comes later.
 - A7. Texting needs some gateway, which cannot be fully free. Options to compare: a pay-per-message provider with no subscription, or a self-hosted gateway using our own SIM or GSM modem. Owner has not chosen.
 - A8. WhatsApp Business messaging is charged per conversation by Meta and needs approved templates. It may be dropped or delayed to keep costs at zero. Owner has not chosen.
-- A9. The driver and guardian apps can keep working without Firebase if push is replaced by a self-hosted mechanism. Unknown how much the apps depend on it today.
+- A9. The driver app can keep working without Firebase if push is replaced by a self-hosted mechanism. Unknown how much it depends on Firebase today.
+- A10. The only mobile app is the driver app. A "guardian" app, role or screens may exist in the code from earlier work. Find them and report whether they are used, and whether Guardians (role 5) are separate records from Parents (role 4) that should be treated as the same thing. Do not delete anything.
 
 ## Foundation work already planned (Phase 0), compatible with the above
 - `school_features` table: per-school on/off switches, default OFF: parent_mode, sms_updates, tracking_links, whatsapp, mpesa, verified_boarding. Admin-only, audited.
@@ -94,7 +95,7 @@ Parents never log in and have no accounts to manage. The system admin and the sc
 - Redis queue for NEW jobs only; existing code keeps current queue behaviour.
 - Health check command for Redis, queue worker, scheduler.
 - Config key names only (WhatsApp, SMS, Daraja, short links) in `.env.example`.
-- Fix: AdminDashboardController counts the wrong role numbers (drivers, parents, students). Expected correct values: Schools 2, Drivers 3, Parents 4, Guardians 5, Students 6. VERIFY against the real roles before trusting this.
+- Fix: AdminDashboardController counts the wrong role numbers (drivers, parents, students). Expected correct values: Schools 2, Drivers 3, Parents 4, Students 6. Guardians (5) should be treated as the same as Parents: report how the two roles differ in the code and data, and how many users hold each. VERIFY against the real roles before trusting this.
 </context>
 
 <instructions>
@@ -103,8 +104,8 @@ Work in this order. Think step by step, then report.
 1. Map the project: framework versions, folder structure, routes (`routes/api.php`), controllers (including `TripController`, `AdminDashboardController`), models, migrations, jobs, notifications (Firebase push), scheduler (`Console/Kernel.php`), queue and cache config, and the Vue apps.
 2. Do NOT open or print `.env` or any secrets. Read `.env.example` only.
 3. Check each requirement below against the code and database structure, and record EXISTS / PARTIAL / MISSING / CONFLICT with evidence:
-   a. Students: class or grade, home location, bus and route assignment, link to parent or guardian.
-   b. Parent and guardian phone numbers: where stored, format, how consistent, how many are missing or malformed (structure and counts only, no real numbers in your report).
+   a. Students: class or grade, home location, bus and route assignment, link to parent (and any guardian link that duplicates it).
+   b. Parent phone numbers (include any separate guardian records): where stored, format, how consistent, how many are missing or malformed (structure and counts only, no real numbers in your report).
    c. Roles: the real numeric role values and how they are used. Confirm or correct the dashboard fix table above.
    d. Trips: how a trip starts and ends, morning versus afternoon, trip-student relationship, existing boarded / picked-up / dropped-off events and who records them.
    e. Driver app: what it already sends and receives; whether per-student boarding is recorded; the endpoints it calls.
@@ -132,7 +133,7 @@ If information is missing or uncertain, state this explicitly rather than guessi
 <constraints>
 - READ-ONLY. No edits, no migrations, no commits, no installs, no config changes. Running the existing tests once is the only command with side effects allowed.
 - Never read, print or log `.env`, API keys, tokens or real phone numbers.
-- Do not touch `GET users/all-schools`, any existing endpoint, the driver app, the guardian app or push notifications. Only report on them.
+- Do not touch `GET users/all-schools`, any existing endpoint, the driver app, any existing guardian app or screens, or push notifications. Only report on them.
 - New behaviour must be additive and behind a per-school switch that defaults to OFF. Turning a switch off must restore exactly today's behaviour.
 - Server time zone stays UTC. Nairobi time is used only by new code.
 - Plain language. No jargon without a one-line explanation.
@@ -145,7 +146,7 @@ If information is missing or uncertain, state this explicitly rather than guessi
 Format: markdown, in this structure:
 1. One-paragraph verdict: can this product be built on the current system, yes or no, and the biggest risk.
 2. Table: requirement | status (EXISTS / PARTIAL / MISSING / CONFLICT) | evidence (file:line) | note.
-3. Assumptions A1-A9: supported / contradicted / undecidable, each with one line of evidence.
+3. Assumptions A1-A10: supported / contradicted / undecidable, each with one line of evidence.
 4. External services table: service | where used | cost type (free / per-use / subscription) | self-hosted replacement | effort to switch (small / medium / large).
 5. Single-VPS plan: the stack, what to install, what is missing in the repo, and a short security and backup checklist.
 6. Conflicts and risks, ranked, most serious first.
